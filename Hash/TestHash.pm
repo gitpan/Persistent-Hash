@@ -10,7 +10,7 @@ use constant STORABLE => 1;
 use constant INFO_TABLE => 'phash_tests_info';
 
 use constant DATA_TABLE => 'phash_tests_data';
-use constant DATA_FIELDS => ['tk1','tk2','tk3'];
+use constant DATA_FIELDS => ['tk1','tk2','tk3','blow','explosion','bomb','reason'];
 
 use constant INDEX_TABLE => 'phash_tests_index';
 use constant INDEX_FIELDS => ['itk1','itk2','itk3'];

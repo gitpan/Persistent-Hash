@@ -51,7 +51,7 @@ if ($options->{extended_tests})
 		$ENV{'ORACLE_HOME'} = $config->{oracle_home};
 	}
 	my $dbh = DBI->connect(
-	  $config->{dsn}, $config->{root}, $config->{rootpw}, {
+	  $config->{dsn}, $config->{dbuser}, $config->{dbpw}, {
 		  RaiseError => 0,
 		  Warn       => 0,
 		  PrintError => 1,
@@ -119,6 +119,10 @@ sub creve
 	  'NAME'         => 'Persistent::Hash',
 	  'VERSION_FROM' => 'Hash.pm',
 	  'clean' => { FILES => 'pod2htm* t/config.pl', },
+	  'PREREQ_PM'   => 
+	  {
+		'DBI'	=> '0',
+    	  },
   	  'dist'    => { 'PREOP' => 'pod2text Hash.pod > README; pod2html Hash.pod > docs/index.html; pod2html Hash/API.pod > docs/API.html; pod2html Hash/Manual.pod > docs/Manual.html; pod2html Hash/Storage.pod > docs/Storage.html;', },
 	);
 	exit;

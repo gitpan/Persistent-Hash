@@ -3,6 +3,7 @@ MANIFEST
 README
 Makefile.PL
 Hash.pm
+Hash/Dumper.pm
 Hash.pod
 Hash/API.pod
 Hash/Manual.pod
@@ -21,3 +22,6 @@ t/2tiehash.t
 t/3save.t
 t/4load.t
 t/5msave.t
+t/6delete.t
+t/7containment.t
+t/8subrefs.t

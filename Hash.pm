@@ -6,7 +6,9 @@ use Carp qw(croak);
 use Data::Dumper;
 
 use vars qw($VERSION);
-$VERSION = '0.1';
+$VERSION = '0.5';
+
+use Persistent::Hash::Dumper;
 
 use constant DEBUG_LEVEL => 0;
 
@@ -29,15 +31,25 @@ use constant SAVE_ONLY_IF_DIRTY => 0;
 
 sub new
 {
+	my $classname = shift;
+	return $classname->_instanciate(@_);
+}
+
+sub _instanciate
+{
 	my($classname, $args) = @_;
 
-	#Create the untied hash
 	my $self;
+	#Create the untied hash
 
 	#Tie the hash
 	tie %$self, $classname;
 	bless $self, $classname;
 
+	my $untied_self = tied %$self;
+	$untied_self->{_data_dirty} = 1;
+	$untied_self->{_index_dirty} = 1;
+	
 	return $self;
 }
 
@@ -49,7 +61,7 @@ sub load
 	croak "No id passed to load()" if not defined $id;
 	croak "Argument to load() is not numeric" if not $id =~ /^[0-9]+$/;
 	
-	my $self = $classname->new();
+	my $self = $classname->_instanciate();
 	my $untied_self = tied %$self if tied %$self;
 	die "Constructor error" if not defined $untied_self;
 
@@ -136,13 +148,12 @@ sub Save
 	my $untied_self = tied %$self if tied %$self;
 	croak "Wrong object side!" if not defined $untied_self;
 
-	return undef if not $untied_self->STORABLE();
+	return undef if !$untied_self->STORABLE();
 	return undef if !$untied_self->_IsDirty() && $untied_self->SAVE_ONLY_IF_DIRTY();
-
 
 	my $storage_module = $untied_self->_PreloadStorageModule();
 
-	if(not defined $untied_self->{_object_id})
+	if(!defined $untied_self->{_object_id})
 	{
 		my $object_id = $storage_module->InsertObject($self);	
 		croak "Object insertion failed!" if not defined $object_id;
@@ -211,6 +222,47 @@ sub InternalData
 	return $untied_self;
 }
 
+
+sub Freezer 
+{
+	my $self = shift;
+	croak "No self reference!" if not defined $self;
+	
+	my $untied_self = tied %$self if tied %$self;
+	croak "Wrong object side!" if not defined $untied_self;
+
+	my $id = $self->Id();
+
+	if(not defined $id)
+	{
+		my $type = $self->Type();
+		warn "Attempted to freeze an unsaved object instance of type $type";
+	}
+
+	my $package = ref($self);
+	my $str = "do { use $package; scalar(load $package('$id')) }";
+	return $str;
+}
+
+sub Dump
+{
+	my $self = shift;
+	croak "No self reference!" if not defined $self;
+	
+	my $untied_self = tied %$self if tied %$self;
+	croak "Wrong object side!" if not defined $untied_self;
+
+   local $Data::Dumper::Indent=0;
+   local $Data::Dumper::Useqq=1;
+   local $Data::Dumper::Terse=1;
+   local $Data::Dumper::Freezer = 'Freezer';
+
+	my $d = 'Persistent::Hash::Dumper'->new( [$untied_self->{_data}] );
+	my $str = $d->Dump();
+	return $str;
+}
+
+	
 #--#------------------------------------------#
 # Internal API
 #--#------------------------------------------#
@@ -240,16 +292,17 @@ sub _Initialize
 	$untied_self->{_data} = $storage_module->LoadObjectData($untied_self);
 	$untied_self->{_index_data} = $storage_module->LoadObjectIndex($untied_self);
 
+
 	foreach my $key (keys %{$untied_self->{_data}})
 	{
-		delete $untied_self->{_data}->{$key} if not $untied_self->{_data_fields}->{$key} && $untied_self->STRICT_FIELDS();
-		delete $untied_self->{_data}->{$key} if not defined $untied_self->{_data}->{$key};
+		delete $untied_self->{_data}->{$key} if !$untied_self->{_data_fields}->{$key} && $untied_self->STRICT_FIELDS();
+		delete $untied_self->{_data}->{$key} if !defined $untied_self->{_data}->{$key};
 	}
 
 	foreach my $key (keys %{$untied_self->{_index_data}})
 	{
-		delete $untied_self->{_index_data}->{$key} if not $untied_self->{_index_fields}->{$key} && $untied_self->STRICT_FIELDS();
-		delete $untied_self->{_index_data}->{$key} if not defined $untied_self->{_index_data}->{$key};
+		delete $untied_self->{_index_data}->{$key} if !$untied_self->{_index_fields}->{$key} && $untied_self->STRICT_FIELDS();
+		delete $untied_self->{_index_data}->{$key} if !defined $untied_self->{_index_data}->{$key};
 	}
 
 	$untied_self->{_initialized} = 1;
@@ -263,6 +316,13 @@ sub _IsDirty
 	croak "Attempt to call _IsDirty() as a function call" if not defined $untied_self;
 	croak "Wrong object side!" if tied %$untied_self;
 
+	#If any key in the hash is a ref to something, we are automatically
+	#dirty because we can't track another ref's modifications.
+	foreach my $key (keys %{$untied_self->{'_data'}})
+	{
+		$untied_self->{'_data_dirty'} = 1 if ref( $untied_self->{'_data'}->{$key} );
+	}
+
 	return 1 if $untied_self->{_index_dirty} == 1;
 	return 1 if $untied_self->{_data_dirty} == 1;
 	return undef;
@@ -274,9 +334,9 @@ sub _FlattenData
 	croak "No self reference!" if not defined $untied_self;
 	croak "Wrong object side!" if tied %$untied_self;	
 
-        local $Data::Dumper::Terse = 1;
+   local $Data::Dumper::Terse = 1;
 	local $Data::Dumper::Indent = 0;
-        local $Data::Dumper::Useqq = 1;
+   local $Data::Dumper::Useqq = 1;
 
 	my $dump = Dumper($untied_self->{_data});
 	$dump =~ s/\$VAR1 =//g;
@@ -313,7 +373,6 @@ sub TIEHASH
 
 	my $type = $classname->PackageToType();
 
-
 	my $self = 
 	{
 		_object_id => undef,
@@ -328,6 +387,15 @@ sub TIEHASH
 	};
 	bless $self, $classname;
 
+	return $self->_TieFields();
+}
+
+sub _TieFields
+{
+	my $self = shift;
+	$self->{_index_fields} = {};
+	$self->{_data_fields} = {};
+
 	foreach my $field (@{$self->INDEX_FIELDS()})
 	{
 		$self->{_index_fields}->{$field} = 1;
@@ -337,11 +405,9 @@ sub TIEHASH
 	{
 		$self->{_data_fields}->{$field} = 1;
 	}
-
-
 	return $self;
 }
-
+	
 sub DELETE
 {
 	my $untied_self = shift;
@@ -384,9 +450,9 @@ sub CLEAR
 sub STORE
 {
 	my $untied_self = shift;
-	print STDERR "STORE called.\n" if $untied_self->DEBUG_LEVEL();
 	my $key = shift;
 	my $value = shift;
+	print STDERR "STORE called for $key: $value\n" if $untied_self->DEBUG_LEVEL();
 
 	$untied_self->_Initialize() if not $untied_self->_IsInitialized();
 
@@ -408,15 +474,15 @@ sub STORE
 	else
 	{
 		$untied_self->{_data_dirty} = 1;
-		return $untied_self->{_data}->{$key} = $value;
+		return ($untied_self->{_data}->{$key} = $value);
 	}
 }
 
 sub FETCH
 {
 	my $untied_self = shift;
-	print STDERR "FETCH called.\n" if $untied_self->DEBUG_LEVEL();
 	my $key = shift;
+	print STDERR "FETCH called for $key\n" if $untied_self->DEBUG_LEVEL();
 
 	$untied_self->_Initialize() if not $untied_self->_IsInitialized();
 

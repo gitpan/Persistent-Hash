@@ -3,8 +3,9 @@ package Persistent::Hash::Storage::MySQL;
 
 use strict;
 use Carp qw(croak);
-use Data::Dumper;
+
 use DBI;
+use Data::Dumper;
 
 use vars qw($VERSION);
 
@@ -81,8 +82,9 @@ sub LoadObjectData
 	my $data = $load_data_sth->fetchrow();
 	$load_data_sth->finish();
 
-	$data = eval "$data";
-	
+
+	$data = eval "+"."$data";
+
 
 	return $data;
 }		
@@ -174,9 +176,9 @@ sub InsertObject
 	my $dbh = $self->DatabaseHandle();
 	croak "Could not obtain a database handle!" if not defined $dbh;
 
-	my $info_table = $object->INFO_TABLE();
-	my $data_table = $object->DATA_TABLE();
-	my $index_table = $object->INDEX_TABLE();
+	my $info_table = $self->INFO_TABLE();
+	my $data_table = $self->DATA_TABLE();
+	my $index_table = $self->INDEX_TABLE();
 	my $time = time();
 
 	my $object_data = $object->{_data};
@@ -188,12 +190,13 @@ sub InsertObject
 						$info_table(type,time_created,time_modified)
 						values(?,?,?)";
 	my $insert_info_sth = $dbh->prepare_cached($insert_info_query) || die "Could not prepare $insert_info_query: $DBI::errstr";
-	$insert_info_sth->execute($object->Type(), $time,$time) || die "Could not execute $insert_info_query: $DBI::errstr";
+	$insert_info_sth->execute($self->Type(), $time,$time) || die "Could not execute $insert_info_query: $DBI::errstr";
 	my $object_id = $insert_info_sth->{'mysql_insertid'};
 	$insert_info_sth->finish();
 
+
 	#Insert the data record
-	if(keys %$object_data)
+	if($object_data)
 	{
 		my $insert_data_query = "INSERT INTO
 						$data_table(id,data)
@@ -201,7 +204,7 @@ sub InsertObject
 		my $insert_data_sth = $dbh->prepare_cached($insert_data_query) || die "Could not prepare $insert_data_query: $DBI::errstr";
 		$insert_data_sth->execute(
 					$object_id,
-					$object->_FlattenData($object_data)) || die "Could not execute $insert_data_query: $DBI::errstr";
+					$object->_FlattenData($object_data)||"{}") || die "Could not execute $insert_data_query: $DBI::errstr";
 		$insert_data_sth->finish();
 	}
 
@@ -246,7 +249,6 @@ sub UpdateObject
 	my $object_index_data = $object->{_index_data};
 	my $index_fields = $object->INDEX_FIELDS();
 
-
 	#Update the info record.
 	my $update_info_query = "UPDATE $info_table
 					SET
@@ -255,6 +257,8 @@ sub UpdateObject
 						time_modified = ?
 					WHERE 
 						id = ?";
+
+
 	my $update_info_sth = $dbh->prepare_cached($update_info_query) || die "Could not prepare $update_info_query: $DBI::errstr";
 
 	$update_info_sth->execute(
@@ -266,6 +270,7 @@ sub UpdateObject
 	$update_info_sth->finish();
 
 	#update the data record			
+
 	if($object_data && $object->{_data_dirty})
 	{
 		my $update_data_query = "UPDATE $data_table
@@ -273,6 +278,8 @@ sub UpdateObject
 						data = ?
 					WHERE	
 						id = ?";
+
+
 		my $update_data_sth = $dbh->prepare_cached($update_data_query) || die "Could not prepare $update_data_query: $DBI::errstr";
 		$update_data_sth->execute(
 				$object->_FlattenData($object_data), 
